@@ -213,7 +213,6 @@ export default function App() {
 
     setStudentUid(uid);
     setIsLocalMode(localModeActive);
-    setLocalScratchpads([]);
 
     // 建立該學生的 Firestore 紀錄 (非單機模式)
     if (!localModeActive) {
