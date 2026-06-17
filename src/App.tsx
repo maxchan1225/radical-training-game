@@ -52,7 +52,6 @@ export default function App() {
   const [nickname, setNickname] = useState('');
   const [studentUid, setStudentUid] = useState('');
   const [isLocalMode, setIsLocalMode] = useState(false);
-  const [localScratchpads, setLocalScratchpads] = useState<string[]>([]);
   
   // 遊戲與答題狀態
   const [selectedType, setSelectedType] = useState<number | null>(null);
@@ -424,14 +423,13 @@ export default function App() {
           const rawUrl = res.data.url;
           const downloadUrl = rawUrl.replace("tmpfiles.org/", "tmpfiles.org/dl/");
 
-          // 將下載網址加入到學生的 Firestore 紀錄中 (非單機模式)
           if (!isLocalMode) {
             await updateDoc(doc(db, "students", studentUid), {
               scratchpads: arrayUnion(downloadUrl),
               lastActive: Date.now()
             });
           } else {
-            setLocalScratchpads((prev) => [...prev, downloadUrl]);
+            console.log("本地單機模式下照片上傳成功：", downloadUrl);
           }
 
           setUploadProgress(null);
