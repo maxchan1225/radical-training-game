@@ -88,10 +88,10 @@ export default function App() {
 
   // 1. 初始化監聽排行榜 (適用於教師端與登入頁展示)
   useEffect(() => {
+    // 只對 score 進行單一排序，避免因沒有建立「複合索引」而導致 query 失敗
     const qLeaderboard = query(
       collection(db, "students"),
-      orderBy("score", "desc"),
-      orderBy("timeSpent", "asc")
+      orderBy("score", "desc")
     );
     
     const unsubscribe = onSnapshot(qLeaderboard, (snapshot) => {
@@ -99,7 +99,16 @@ export default function App() {
       snapshot.forEach((doc) => {
         list.push({ uid: doc.id, ...doc.data() } as StudentData);
       });
+      // 在前端做複合排序 (先比 score 降序，再比 timeSpent 升序)
+      list.sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        return a.timeSpent - b.timeSpent;
+      });
       setLeaderboard(list);
+    }, (error) => {
+      console.error("監聽排行榜失敗：", error);
     });
     
     return () => unsubscribe();
