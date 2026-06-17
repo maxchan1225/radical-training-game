@@ -51,6 +51,8 @@ export default function App() {
   const [seatNo, setSeatNo] = useState('');
   const [nickname, setNickname] = useState('');
   const [studentUid, setStudentUid] = useState('');
+  const [isLocalMode, setIsLocalMode] = useState(false);
+  const [localScratchpads, setLocalScratchpads] = useState<string[]>([]);
   
   // 遊戲與答題狀態
   const [selectedType, setSelectedType] = useState<number | null>(null);
@@ -135,7 +137,7 @@ export default function App() {
         setTimeSpent((prev) => {
           const nextTime = prev + 1;
           // 同步時間到 Firestore (每 5 秒同步一次，避免頻繁寫入)
-          if (nextTime % 5 === 0 && studentUid) {
+          if (nextTime % 5 === 0 && studentUid && !isLocalMode) {
             updateDoc(doc(db, "students", studentUid), {
               timeSpent: nextTime,
               lastActive: Date.now()
@@ -182,49 +184,75 @@ export default function App() {
       return;
     }
 
+    setIsSubmitting(true);
+    let uid = "";
+    let localModeActive = false;
+
     try {
-      setIsSubmitting(true);
       // 進行匿名登入
       const userCredential = await signInAnonymously(auth);
-      const uid = userCredential.user.uid;
-      setStudentUid(uid);
-
-      // 建立該學生的 Firestore 紀錄
-      const sData: StudentData = {
-        uid,
-        classId: classId.trim(),
-        seatNo: seatNo.trim(),
-        nickname: nickname.trim(),
-        score: 0,
-        correctCount: 0,
-        totalCount: 0,
-        timeSpent: 0,
-        lastActive: Date.now(),
-        scratchpads: []
-      };
-
-      await setDoc(doc(db, "students", uid), sData);
-
-      // 初始化答題狀態
-      setScore(0);
-      setCorrectCount(0);
-      setTimeSpent(0);
-      setQuestionIndex(1);
-      setLuckyCardsUsed(0);
-      setShowTip(false);
-      setInputAnswer('');
+      uid = userCredential.user.uid;
+    } catch (authErr: any) {
+      console.error("Firebase 匿名登入失敗，嘗試切換為單機模式：", authErr);
+      const isAuthDisabled = authErr.code === 'auth/admin-restricted-operation' || authErr.message?.includes('admin-restricted-operation');
       
-      // 產生第一題
-      const firstQ = generateQuestion(selectedType);
-      setCurrentQuestion(firstQ);
-      setIsPlaying(true);
-      setView('student');
-    } catch (e) {
-      console.error(e);
-      alert("登入或連線失敗，請檢查網路！");
-    } finally {
-      setIsSubmitting(false);
+      let errorMsg = "Firebase 登入失敗。";
+      if (isAuthDisabled) {
+        errorMsg = "您的 Firebase 專案尚未在 Console 中啟用「匿名登入 (Anonymous Auth)」方法。\n請前往 Firebase 控制台 -> Authentication -> Sign-in Method 將「匿名登入」切換為「啟用」！\n\n";
+      }
+      
+      const useLocal = window.confirm(`${errorMsg}是否切換為【本地單機訓練模式】進行練習？\n(單機模式下成績無法同步到老師的大螢幕，但遊戲可以正常遊玩)`);
+      if (!useLocal) {
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // 使用本地臨時 UUID
+      uid = `local_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      localModeActive = true;
     }
+
+    setStudentUid(uid);
+    setIsLocalMode(localModeActive);
+    setLocalScratchpads([]);
+
+    // 建立該學生的 Firestore 紀錄 (非單機模式)
+    if (!localModeActive) {
+      try {
+        const sData: StudentData = {
+          uid,
+          classId: classId.trim(),
+          seatNo: seatNo.trim(),
+          nickname: nickname.trim(),
+          score: 0,
+          correctCount: 0,
+          totalCount: 0,
+          timeSpent: 0,
+          lastActive: Date.now(),
+          scratchpads: []
+        };
+        await setDoc(doc(db, "students", uid), sData);
+      } catch (dbErr) {
+        console.error("寫入 Firestore 失敗，自動降級為單機模式：", dbErr);
+        setIsLocalMode(true);
+      }
+    }
+
+    // 初始化答題狀態
+    setScore(0);
+    setCorrectCount(0);
+    setTimeSpent(0);
+    setQuestionIndex(1);
+    setLuckyCardsUsed(0);
+    setShowTip(false);
+    setInputAnswer('');
+    
+    // 產生第一題
+    const firstQ = generateQuestion(selectedType);
+    setCurrentQuestion(firstQ);
+    setIsPlaying(true);
+    setView('student');
+    setIsSubmitting(false);
   };
 
   // 鍵盤輸入處理
@@ -277,15 +305,17 @@ export default function App() {
     setInputAnswer('');
     setShowTip(false);
     
-    // 更新資料庫
-    try {
-      await updateDoc(doc(db, "students", studentUid), {
-        score: nextScore,
-        totalCount: questionIndex,
-        lastActive: Date.now()
-      });
-    } catch (e) {
-      console.error(e);
+    // 更新資料庫 (非單機模式)
+    if (!isLocalMode) {
+      try {
+        await updateDoc(doc(db, "students", studentUid), {
+          score: nextScore,
+          totalCount: questionIndex,
+          lastActive: Date.now()
+        });
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     if (questionIndex >= 10) {
@@ -325,16 +355,18 @@ export default function App() {
       setAnswerFeedback('incorrect');
     }
 
-    // 更新 Firestore 學生資料
-    try {
-      await updateDoc(doc(db, "students", studentUid), {
-        score: nextScore,
-        correctCount: nextCorrectCount,
-        totalCount: questionIndex,
-        lastActive: Date.now()
-      });
-    } catch (e) {
-      console.error("更新成績失敗：", e);
+    // 更新 Firestore 學生資料 (非單機模式)
+    if (!isLocalMode) {
+      try {
+        await updateDoc(doc(db, "students", studentUid), {
+          score: nextScore,
+          correctCount: nextCorrectCount,
+          totalCount: questionIndex,
+          lastActive: Date.now()
+        });
+      } catch (e) {
+        console.error("更新成績失敗：", e);
+      }
     }
 
     // 延遲 1.5 秒進入下一題，讓學生看清對錯反饋
@@ -392,11 +424,15 @@ export default function App() {
           const rawUrl = res.data.url;
           const downloadUrl = rawUrl.replace("tmpfiles.org/", "tmpfiles.org/dl/");
 
-          // 將下載網址加入到學生的 Firestore 紀錄中
-          await updateDoc(doc(db, "students", studentUid), {
-            scratchpads: arrayUnion(downloadUrl),
-            lastActive: Date.now()
-          });
+          // 將下載網址加入到學生的 Firestore 紀錄中 (非單機模式)
+          if (!isLocalMode) {
+            await updateDoc(doc(db, "students", studentUid), {
+              scratchpads: arrayUnion(downloadUrl),
+              lastActive: Date.now()
+            });
+          } else {
+            setLocalScratchpads((prev) => [...prev, downloadUrl]);
+          }
 
           setUploadProgress(null);
           setUploadMessage("✅ 上傳成功！過程已同步至老師大螢幕！");
@@ -659,6 +695,11 @@ export default function App() {
             <div>
               <span style={{ color: 'var(--text-secondary)' }}>學生：</span>
               <span style={{ fontWeight: '600' }}>{classId} 班 {seatNo} 號 {nickname}</span>
+              {isLocalMode && (
+                <span style={{ marginLeft: '8px', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.2)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                  ⚠️ 單機模式
+                </span>
+              )}
             </div>
             <div>
               <span style={{ color: 'var(--text-secondary)' }}>題型：</span>
