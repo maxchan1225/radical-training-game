@@ -230,8 +230,9 @@ export default function App() {
           scratchpads: []
         };
         await setDoc(doc(db, "students", uid), sData);
-      } catch (dbErr) {
+      } catch (dbErr: any) {
         console.error("寫入 Firestore 失敗，自動降級為單機模式：", dbErr);
+        alert(`連線到雲端資料庫失敗，已自動切換為【單機模式】遊玩！\n\n失敗原因：${dbErr.message || "權限不足"}\n\n(提示：若要啟用大螢幕同步，請確保您的 Firebase 專案已在控制台開通了 Firestore Database (default) 資料庫，且安全規則允許寫入。成績目前未同步到大螢幕。)`);
         setIsLocalMode(true);
       }
     }

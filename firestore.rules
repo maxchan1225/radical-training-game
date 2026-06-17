@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 允許任何已登入的使用者讀寫學生成績資料
+    match /students/{uid} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // 允許任何已登入的使用者讀寫房間抽籤控制狀態
+    match /rooms/{roomId} {
+      allow read, write: if request.auth != null;
+      
+      // 學生端只需讀取成員與中籤狀態
+      match /members/{memberId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+  }
+}
